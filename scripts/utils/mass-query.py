@@ -144,6 +144,7 @@ def main():
 
             logger.info(f"Processing sequence {sequence_name} ({sequenceLength:,} bp)")
 
+            # Break long sequences into smaller fragments to free up memory
             if sequenceLength > args.chunk_size:
                 for i in range(0, sequenceLength, args.chunk_size):
                     sub_seq = str(record.seq[i:i + args.chunk_size]).upper()
