@@ -121,17 +121,16 @@ if(opt$uniform_y){
 
 height.factor = 1
 seq.names = unique(values$Sequence)
-temp.range = NULL
 for(seq in seq.names){
   temp.values = values %>% filter(Sequence==seq)
   
   # Calculate the necessary size to match the current scale
   if(opt$keep){
-    temp.range =  (max(temp.values$End) - min(temp.values$Start) + 1) / (1000000 * opt$scale)
+    temp_range = (max(temp.values$End) - min(temp.values$Start) + 1) / (1000000 * opt$scale)
     if(opt$legend){
-      temp.length = temp.range + 2
+      temp.length = temp_range + 2
     }else{
-      temp.length = temp.range + 0.5
+      temp.length = temp_range + 0.5
     }
     if(!opt$axes){
       temp.length = temp.length - 0.5
