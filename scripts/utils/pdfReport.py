@@ -9,8 +9,8 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak, Table
 from reportlab.lib.styles import getSampleStyleSheet
 
+### Prepares a ReportLab Image object with restricted size.
 def image_prep(path, width=6.5 * inch, height=9 * inch):
-    """Prepares a ReportLab Image object with restricted size."""
     try:
         img = Image(path)
         img._restrictSize(width, height)
@@ -19,8 +19,8 @@ def image_prep(path, width=6.5 * inch, height=9 * inch):
         logging.error(f"Failed to load image {path}: {e}")
         return None
 
+### Adds an image to the story if it exists, otherwise adds an error message.
 def add_safe_image(story, path, width, height, styles, spacer=0.1):
-    """Adds an image to the story if it exists, otherwise adds an error message."""
     if os.path.exists(path):
         if spacer:
             story.append(Spacer(1, spacer * inch))
@@ -32,8 +32,8 @@ def add_safe_image(story, path, width, height, styles, spacer=0.1):
     story.append(Paragraph(f"<b>ERROR:</b> Could not find file {os.path.basename(path)}.", styles["Normal"]))
     return False
 
+### Adds a row of images using a Table.
 def add_image_row(story, paths, widths, heights, styles):
-    """Adds a row of images using a Table."""
     row = []
     all_exist = True
     for path, w, h in zip(paths, widths, heights):
@@ -53,8 +53,9 @@ def add_image_row(story, paths, widths, heights, styles):
         missing = [os.path.basename(p) for p in paths if not os.path.exists(p)]
         story.append(Paragraph(f"<b>ERROR:</b> Could not find one or more files: {', '.join(missing)}.", styles["Normal"]))
 
+### Discovers sequence names from images in the directory.
 def get_sequence_names(image_dir, prefix):
-    """Discovers sequence names from images in the directory."""
+
     # Pattern: {prefix}_spectra_{sequence}.png, excluding spectra_gff
     pattern = re.compile(rf"^{re.escape(prefix)}_spectra_(.+)\.png$")
     sequences = []
@@ -66,8 +67,8 @@ def get_sequence_names(image_dir, prefix):
                 sequences.append(seq_name)
     return sorted(sequences)
 
+### Adds the K-mer distribution plots section.
 def add_kmer_distribution_section(story, image_dir, prefix, mer, styles):
-    """Adds the K-mer distribution plots section."""
     story.append(Paragraph(
         f"<b>K={mer} distributions:</b> Kmer prevalence (left) in raw data [x-axis, log-scale] against prevalence in assembled data [y-axis, log-scale]. Kmer prevalence (right) when filtered for the top and bottom 5% of kmers by shift in abundance between datasets.",
         styles["Normal"]))
@@ -86,8 +87,8 @@ def add_kmer_distribution_section(story, image_dir, prefix, mer, styles):
     density_path = os.path.join(image_dir, f"{prefix}_kmer_comp_k{mer}_density.png")
     add_safe_image(story, density_path, 6 * inch, 3 * inch, styles)
 
+### Adds the abundance density and ECDF section.
 def add_abundance_density_section(story, image_dir, prefix, mer, styles):
-    """Adds the abundance density and ECDF section."""
     story.append(PageBreak())
     story.append(Paragraph(
         f"<b>K={mer} abundance density:</b> Kernal density estimation (left) and violin plots (right) of kmers in raw [blue] and assembled [orange] data. Graphical estimations might not be smoothed depending on the data's composition.",
@@ -107,8 +108,8 @@ def add_abundance_density_section(story, image_dir, prefix, mer, styles):
     ecdf_path = os.path.join(image_dir, f"{prefix}_kmer_comp_k{mer}_ecdf.png")
     add_safe_image(story, ecdf_path, 6 * inch, 3 * inch, styles)
 
+### Adds the sequence-specific breakdown pages.
 def add_sequence_breakdown_section(story, image_dir, prefix, mer, sequence_names, max_output, ngaps, bins, styles):
-    """Adds the sequence-specific breakdown pages."""
     story.append(PageBreak())
 
     paragraph_text = (f"<b>Sequence-specific spectra breakdowns:</b> the following pages are a breakdown of spectra (K=3 mer distribution) "
@@ -164,8 +165,8 @@ def add_sequence_breakdown_section(story, image_dir, prefix, mer, sequence_names
         low_path = os.path.join(image_dir, f"{prefix}_mass_{sequence}_low.png")
         add_safe_image(story, low_path, 6.5 * inch, 4 * inch, styles, spacer=0)
 
+### Main function to construct the PDF report.
 def make_report(output_pdf, image_dir, mer, prefix, bins=False, ngaps=False, max_output=50):
-    """Main function to construct the PDF report."""
     doc = SimpleDocTemplate(output_pdf, pagesize=letter)
     doc.title = f'Spectra output report: {prefix}'
     story = []
