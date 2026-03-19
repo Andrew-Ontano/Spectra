@@ -29,7 +29,7 @@ coveragePlot = function(values, legend=FALSE, axes, y_max=NULL){
     mutate(ymax = cumsum(Count), ymin = ymax - Count) %>%
     ungroup()
   p=ggplot(values, aes(x=(Start+End)/2, ymin=ymin, ymax=ymax, fill=Bin))+geom_ribbon()
-
+  
   p = p + scale_x_continuous(
       limits=c(min(values$Start), max(values$End)),
       n.breaks=10,
@@ -121,17 +121,16 @@ if(opt$uniform_y){
 
 height.factor = 1
 seq.names = unique(values$Sequence)
-temp.range = NULL
 for(seq in seq.names){
   temp.values = values %>% filter(Sequence==seq)
-
+  
   # Calculate the necessary size to match the current scale
   if(opt$keep){
-    temp.range =  (max(temp.values$End) - min(temp.values$Start) + 1) / (1000000 * opt$scale)
+    temp_range = (max(temp.values$End) - min(temp.values$Start) + 1) / (1000000 * opt$scale)
     if(opt$legend){
-      temp.length = temp.range + 2
+      temp.length = temp_range + 2
     }else{
-      temp.length = temp.range + 0.5
+      temp.length = temp_range + 0.5
     }
     if(!opt$axes){
       temp.length = temp.length - 0.5
@@ -139,7 +138,7 @@ for(seq in seq.names){
   }else{
     temp.length=10
   }
-
+  
   p_low = coveragePlot(temp.values%>%filter(as.integer(sub("pct", "", Bin)) <= 50), legend=opt$legend, opt$axes, y_max=global_y_max)
   ggsave(filename=paste0(output_file[1], '_', seq, '_low.', output_file[2]),device=output_file[2], width=temp.length, height=1+height.factor*2, units="in", dpi=opt$resolution, limitsize=F)
   p_high = coveragePlot(temp.values%>%filter(as.integer(sub("pct", "", Bin)) > 50), legend=opt$legend, opt$axes, y_max=global_y_max)
