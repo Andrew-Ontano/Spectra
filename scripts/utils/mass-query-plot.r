@@ -23,19 +23,13 @@ baseTheme = theme_bw() + theme(
   legend.title = element_blank()
 )
 
-coveragePlot = function(values, legend=FALSE, range, scale, axes){
+coveragePlot = function(values, legend=FALSE, axes, y_max=NULL){
   values = values %>% group_by(Sequence, Start, End) %>%
     arrange(desc(Bin), .by_group=TRUE, ) %>%
     mutate(ymax = cumsum(Count), ymin = ymax - Count) %>%
     ungroup()
-  p=ggplot(values, aes(x=(Start+End)/2, ymin=ymin, ymax=ymax, fill=Bin))+geom_ribbon()+baseTheme
+  p=ggplot(values, aes(x=(Start+End)/2, ymin=ymin, ymax=ymax, fill=Bin))+geom_ribbon()
   
-  xrange <- max(values$End) - min(values$Start) + 1
-  if(log10(xrange) > log10(scale*1000000)+1){
-    scale = scale * 10
-  }
-  #breaks <- xrange %/% (scale*1000000)
-  #if (breaks < 2) breaks = 2
   p = p + scale_x_continuous(
       limits=c(min(values$Start), max(values$End)),
       n.breaks=10,
@@ -45,6 +39,10 @@ coveragePlot = function(values, legend=FALSE, range, scale, axes){
     xlab("Window Position (nucleotide)") +
     ylab("Counts") +
     baseTheme + theme(plot.margin = margin(t=2.5, l=2.5, b=2.5, r=2.5), legend.position = "bottom")
+
+  if(!is.null(y_max)){
+    p = p + scale_y_continuous(limits=c(0, y_max), expand=c(0,0))
+  }
   if (!axes) {
     p <- p + theme(
       axis.text.x = element_blank(),
@@ -69,7 +67,9 @@ option_list <- list(
   make_option(c("-l","--show-legend"), action="store_true", default=FALSE, help="Display triplet color legend [default %default]", dest="legend"),
   make_option(c("-x","--scale"), type="numeric", default=1, help="Scale of x-axis. Plot each n (mb) over 1 inch [default %default]", dest="scale"),
   make_option(c("-a","--axes"), action="store_false", default=TRUE, help="Display axes text [default %default]", dest="axes"),
-  make_option(c("-k","--keep-scale"), action="store_true", default=FALSE, help="Incorporate scale [default %default]", dest="keep")
+  make_option(c("-k","--keep-scale"), action="store_true", default=FALSE, help="Incorporate scale [default %default]", dest="keep"),
+  make_option(c("-y","--y-max"), type="numeric", default=NULL, help="Set the y-axis limit for all plots [default %default]", dest="y_max"),
+  make_option(c("-u","--uniform-y"), action="store_true", default=FALSE, help="Automatically set the y-axis limit to the maximum across all plots [default %default]", dest="uniform_y")
 )
 
 options(error=traceback)
@@ -90,7 +90,7 @@ if(is.null(opt$output_filename)){
 
 # read tsv values or exit with error
 if(is.null(opt$input_filename)){
-  cat("Error: No tsv specified. See usage 'with spectra-plot.r -h'\n")
+  cat("Error: No tsv specified. See usage 'with mass-query-plot.r -h'\n")
   quit()
 }else{
   values = readr::read_tsv(opt$input_filename, show_col_types = FALSE)
@@ -100,7 +100,7 @@ if(!is.null(opt$sequences)){
   if(opt$regex){
     values = values %>% filter(grepl(opt$sequences, Sequence))
   }else{
-    values = values %>% filter(Sequence%in%as.vector(opt$sequences))
+    values = values %>% filter(Sequence%in%unlist(strsplit(opt$sequences,",")))
   }
 }
 
@@ -109,6 +109,16 @@ if(!is.null(opt$window_size)){
   values = values %>% filter(Start >= as.numeric(coords[[1]][1]))
   values = values %>% filter(End <= as.numeric(coords[[1]][2]))
 }
+
+global_y_max = opt$y_max
+if(opt$uniform_y){
+  global_y_max = values %>%
+    group_by(Sequence, Start, End) %>%
+    summarise(total = sum(Count), .groups = "drop") %>%
+    pull(total) %>%
+    max()
+}
+
 height.factor = 1
 seq.names = unique(values$Sequence)
 for(seq in seq.names){
@@ -116,11 +126,11 @@ for(seq in seq.names){
   
   # Calculate the necessary size to match the current scale
   if(opt$keep){
-    temp.range =  (max(temp.values$End) - min(temp.values$Start) + 1) / (1000000 * opt$scale)
+    temp_range = (max(temp.values$End) - min(temp.values$Start) + 1) / (1000000 * opt$scale)
     if(opt$legend){
-      temp.length = temp.range + 2
+      temp.length = temp_range + 2
     }else{
-      temp.length = temp.range + 0.5
+      temp.length = temp_range + 0.5
     }
     if(!opt$axes){
       temp.length = temp.length - 0.5
@@ -129,8 +139,8 @@ for(seq in seq.names){
     temp.length=10
   }
   
-  p_low = coveragePlot(temp.values%>%filter(as.integer(sub("pct", "", Bin)) <= 50), legend=opt$legend, temp.range, opt$scale, opt$axes)
+  p_low = coveragePlot(temp.values%>%filter(as.integer(sub("pct", "", Bin)) <= 50), legend=opt$legend, opt$axes, y_max=global_y_max)
   ggsave(filename=paste0(output_file[1], '_', seq, '_low.', output_file[2]),device=output_file[2], width=temp.length, height=1+height.factor*2, units="in", dpi=opt$resolution, limitsize=F)
-  p_high = coveragePlot(temp.values%>%filter(as.integer(sub("pct", "", Bin)) > 50), legend=opt$legend, temp.range, opt$scale, opt$axes)
+  p_high = coveragePlot(temp.values%>%filter(as.integer(sub("pct", "", Bin)) > 50), legend=opt$legend, opt$axes, y_max=global_y_max)
   ggsave(filename=paste0(output_file[1], '_', seq, '_high.', output_file[2]),device=output_file[2], width=temp.length, height=1+height.factor*2, units="in", dpi=opt$resolution, limitsize=F)
 }
