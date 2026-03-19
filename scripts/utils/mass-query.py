@@ -8,7 +8,7 @@ import logging
 from collections import Counter, defaultdict
 import multiprocessing
 
-# Fast reverse-complement using translation table
+# Fast reverse complement using translation table
 RC_TRANS = str.maketrans("ACGTacgt", "TGCAtgca")
 def rc(sequence):
     return sequence.translate(RC_TRANS)[::-1]
@@ -144,7 +144,6 @@ def main():
 
             logger.info(f"Processing sequence {sequence_name} ({sequenceLength:,} bp)")
 
-            # Break long sequences into smaller fragments to free up memory
             if sequenceLength > args.chunk_size:
                 for i in range(0, sequenceLength, args.chunk_size):
                     sub_seq = str(record.seq[i:i + args.chunk_size]).upper()
