@@ -155,7 +155,7 @@ with open(args.output, 'w') as f:
     f.write("###### Generate Spectra\n")
     if args.time:
         f.write(f"echo 'Starting 3-mer localization at:'\ndate\n")
-    f.write(f"{variables['python']} {spectra_path}/spectra.py count -w {variables['spectra_window']} -s {variables['spectra_window']} -i {variables['assembled']} -o {variables['prefix']}_spectra.tsv --minimum-size {variables['minimum_size']} -v\n")
+    f.write(f"{variables['python']} {spectra_path}/spectra.py count -w {variables['spectra_window']} -s {variables['spectra_window']} -i {variables['assembled']} -o {variables['prefix']}_spectra.tsv --minimum-size {variables['minimum_size']} -t {variables['threads']} -v\n")
     f.write(f"{variables['rscript']} {spectra_path}/spectra-plot.r -i {variables['prefix']}_spectra.tsv -o {variables['prefix']}/{variables['prefix']}_circular -c -a\n")
     spectraString=f"{variables['rscript']} {spectra_path}/spectra-plot.r -i {variables['prefix']}_spectra.tsv -o {variables['prefix']}/{variables['prefix']}_spectra"
     if args.bins:
