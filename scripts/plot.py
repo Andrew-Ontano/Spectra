@@ -136,11 +136,23 @@ def plot_mass(df, output_prefix, sequence, x_min, x_max, show_axes=True, y_max=N
         midpoints.append(df[df['Start'] == s][['Start', 'End']].iloc[0].mean())
     x = np.array(midpoints)
 
+    # Determine which value column to use. Default to 'Basepairs' if available.
+    value_col = 'Basepairs' if 'Basepairs' in df.columns else 'Count'
+    use_density = 'EffectiveLen' in df.columns
+
     for bin_group, suffix in [(low_bins, 'low'), (high_bins, 'high')]:
         if not bin_group: continue
 
-        pivot_df = df[df['Bin'].isin(bin_group)].pivot(index='Start', columns='Bin', values='Count').fillna(0)
+        subset = df[df['Bin'].isin(bin_group)]
+        pivot_df = subset.pivot(index='Start', columns='Bin', values=value_col).fillna(0)
         pivot_df = pivot_df.reindex(all_starts).fillna(0)
+
+        if use_density:
+            eff_len_pivot = subset.pivot(index='Start', columns='Bin', values='EffectiveLen').fillna(0)
+            eff_len_pivot = eff_len_pivot.reindex(all_starts).fillna(1) # avoid div by zero
+            # We assume EffectiveLen is same for all bins in same window
+            eff_len = eff_len_pivot.max(axis=1)
+            pivot_df = pivot_df.div(eff_len, axis=0)
 
         y_stack = np.cumsum(pivot_df.values, axis=1)
 
@@ -161,9 +173,9 @@ def plot_mass(df, output_prefix, sequence, x_min, x_max, show_axes=True, y_max=N
             ax.set_ylim(0, y_max)
         else:
             current_max = y_stack.max()
-            ax.set_ylim(0, max(current_max * 1.1, 1))
+            ax.set_ylim(0, max(current_max * 1.1, 1.0 if use_density else 1))
 
-        ax.set_ylabel('Counts', fontsize=8)
+        ax.set_ylabel('Density' if use_density else 'Counts', fontsize=8)
         plt.savefig(f"{output_prefix}_{sequence}_{suffix}.png", dpi=PLOT_CONFIG['dpi'])
         plt.close()
 
@@ -271,12 +283,23 @@ def execute(args):
         low_bins = [b for b in bins if b == "low"]
         high_bins = [b for b in bins if b == "high"]
 
+        value_col = 'Basepairs' if 'Basepairs' in df.columns else 'Count'
+        use_density = 'EffectiveLen' in df.columns
+
         max_low = 0
         if low_bins:
-            max_low = df[df['Bin'].isin(low_bins)].groupby(['Sequence', 'Start'])['Count'].sum().max()
+            if use_density:
+                max_low = (df[df['Bin'].isin(low_bins)].groupby(['Sequence', 'Start'])[value_col].sum() /
+                           df[df['Bin'].isin(low_bins)].groupby(['Sequence', 'Start'])['EffectiveLen'].first()).max()
+            else:
+                max_low = df[df['Bin'].isin(low_bins)].groupby(['Sequence', 'Start'])[value_col].sum().max()
         max_high = 0
         if high_bins:
-            max_high = df[df['Bin'].isin(high_bins)].groupby(['Sequence', 'Start'])['Count'].sum().max()
+            if use_density:
+                max_high = (df[df['Bin'].isin(high_bins)].groupby(['Sequence', 'Start'])[value_col].sum() /
+                            df[df['Bin'].isin(high_bins)].groupby(['Sequence', 'Start'])['EffectiveLen'].first()).max()
+            else:
+                max_high = df[df['Bin'].isin(high_bins)].groupby(['Sequence', 'Start'])[value_col].sum().max()
 
         y_max_mass = max(max_low, max_high) * 1.1 if not np.isnan(max(max_low, max_high)) else None
     else:

@@ -142,19 +142,28 @@ def add_abundance_density_section(story, image_dir, prefix, mer, styles):
 def add_mass_compare_section(story, image_dir, prefix, styles):
     story.append(PageBreak())
     story.append(Paragraph(
-        f"<b>Extreme K-mer Coincidence:</b> These scatter plots compare the counts of 'high' and 'low' extreme k-mers across genomic windows. "
+        f"<b>Extreme K-mer Coincidence:</b> These scatter plots compare the density (basepairs covered / effective window basepairs) of 'high' and 'low' extreme k-mers across genomic windows. "
         f"'High' k-mers are those over-represented in the assembly relative to raw reads, while 'low' k-mers are under-represented. "
-        f"Windows identified as outliers (exceeding standard deviation thresholds) are highlighted. "
-        f"The color gradient from red to pink indicates the proximity of these outliers to genomic features such as sequence ends or N-gaps, "
-        f"helping distinguish between expected edge effects and potential assembly artifacts. "
-        f"The log10-scale plot (right) provides finer resolution for windows with lower absolute k-mer counts.",
+        f"The top two plots highlight all windows within a threshold distance of genomic features (sequence ends or N-gaps) to visualize edge-adjacent composition. "
+        f"The bottom two plots highlight outlier windows (exceeding standard deviation thresholds), with those near features colored from red to pink and far outliers colored in green. "
+        f"The log10-scale plots (right) provide finer resolution for windows with lower extreme k-mer densities.",
         styles["Normal"]))
 
-    paths = [
-        os.path.join(image_dir, f"{prefix}_scatter.png"),
-        os.path.join(image_dir, f"{prefix}_scatter_log10.png")
+    # Row 1: Ends highlighted
+    paths_ends = [
+        os.path.join(image_dir, f"{prefix}_ends_scatter.png"),
+        os.path.join(image_dir, f"{prefix}_ends_scatter_log10.png")
     ]
-    add_image_row(story, paths, [3.75 * inch] * 2, [4.5 * inch] * 2, styles)
+    add_image_row(story, paths_ends, [3.75 * inch] * 2, [4.5 * inch] * 2, styles)
+
+    story.append(Spacer(1, 0.2 * inch))
+
+    # Row 2: Outliers highlighted
+    paths_outliers = [
+        os.path.join(image_dir, f"{prefix}_outliers_scatter.png"),
+        os.path.join(image_dir, f"{prefix}_outliers_scatter_log10.png")
+    ]
+    add_image_row(story, paths_outliers, [3.75 * inch] * 2, [4.5 * inch] * 2, styles)
 
 def add_distribution_section(story, image_dir, prefix, mer, styles, percentile_low, percentile_high):
     story.append(PageBreak())
