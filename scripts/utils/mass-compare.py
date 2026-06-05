@@ -19,12 +19,19 @@ def calculate_jaccard(df, threshold):
     union = np.logical_or(high_present, low_present).sum()
     return intersection / union if union > 0 else 0.0
 
-def plot_scatter_ends(win_df, output_prefix, end_threshold, log_scale=False):
-    fig, ax = plt.subplots(figsize=(10, 10))
+def plot_scatter_ends(win_df, output_prefix, end_threshold):
+    fig = plt.figure(figsize=(12, 12))
+    gs = fig.add_gridspec(2, 2,  width_ratios=(1, 5), height_ratios=(5, 1),
+                          left=0.1, right=0.9, bottom=0.1, top=0.9,
+                          wspace=0.05, hspace=0.05)
+
+    ax_scatter = fig.add_subplot(gs[0, 1])
+    ax_hist_x = fig.add_subplot(gs[1, 1], sharex=ax_scatter)
+    ax_hist_y = fig.add_subplot(gs[0, 0], sharey=ax_scatter)
 
     # Background windows (beyond threshold)
     bg = win_df[win_df['MinDist'] > end_threshold]
-    ax.scatter(bg['Low_Density'], bg['High_Density'], alpha=0.3, s=10, color='blue', label='Background')
+    ax_scatter.scatter(bg['Low_Density'], bg['High_Density'], alpha=0.3, s=10, color='blue', label='Background')
 
     # End/N-adjacent regions (within threshold)
     ends = win_df[win_df['MinDist'] <= end_threshold]
@@ -33,36 +40,44 @@ def plot_scatter_ends(win_df, output_prefix, end_threshold, log_scale=False):
         norm_dists = dists / end_threshold
         colors = [(.85, 0, 0), (1, 0.75, 0.8)] # Red to Pink
         cm = LinearSegmentedColormap.from_list('outlier_cm', colors, N=100)
-        sc = ax.scatter(ends['Low_Density'], ends['High_Density'], c=norm_dists, cmap=cm, s=10, alpha=0.8, label='End/N-Adjacent', vmin=0, vmax=1)
-        cbar = plt.colorbar(sc, ax=ax)
+        sc = ax_scatter.scatter(ends['Low_Density'], ends['High_Density'], c=norm_dists, cmap=cm, s=10, alpha=0.8, label='End/N-Adjacent', vmin=0, vmax=1)
+        cbar_ax = fig.add_axes([0.92, 0.2, 0.02, 0.6])
+        cbar = fig.colorbar(sc, cax=cbar_ax)
         cbar.set_label(f'Distance from Feature (0 to {end_threshold})')
 
     # Add diagonal line
-    ax.plot([0, 1], [0, 1], 'k--', alpha=0.5)
+    ax_scatter.plot([0, 1], [0, 1], 'k--', alpha=0.5)
 
-    ax.set_xlabel('Low Extreme Kmer Density')
-    ax.set_ylabel('High Extreme Kmer Density')
-    ax.set_title('Scatter Plot: Extreme Kmer Density (Ends Highlighted)')
-    ax.legend()
-    ax.set_xlim(-0.01, 1.01)
-    ax.set_ylim(-0.01, 1.01)
+    ax_scatter.set_xlim(-0.01, 1.01)
+    ax_scatter.set_ylim(-0.01, 1.01)
+    ax_scatter.tick_params(labelleft=False, labelbottom=False)
 
-    suffix = "_ends_scatter_log10.png" if log_scale else "_ends_scatter.png"
-    if log_scale:
-        plt.xscale("log")
-        plt.yscale("log")
-        ax.set_xlim(left=min(win_df['Low_Density'].replace(0, np.nan).min(), win_df['High_Density'].replace(0, np.nan).min()) * 0.5 or 1e-6)
+    # Marginal Histograms
+    bins = np.linspace(0, 1, 50)
+    ax_hist_x.hist(win_df['Low_Density'], bins=bins, color='blue', alpha=0.7)
+    ax_hist_y.hist(win_df['High_Density'], bins=bins, orientation='horizontal', color='blue', alpha=0.7)
+    ax_hist_y.invert_xaxis()
 
-    plt.tight_layout()
-    plt.savefig(f"{output_prefix}{suffix}", dpi=300)
+    ax_hist_x.set_xlabel('Low Extreme Kmer Density')
+    ax_hist_y.set_ylabel('High Extreme Kmer Density')
+    ax_scatter.set_title('Scatter Plot: Extreme Kmer Density (Ends Highlighted)', pad=20)
+
+    plt.savefig(f"{output_prefix}_ends_scatter.png", dpi=300)
     plt.close()
 
-def plot_scatter_outliers(win_df, output_prefix, end_threshold, log_scale=False):
-    fig, ax = plt.subplots(figsize=(10, 10))
+def plot_scatter_outliers(win_df, output_prefix, end_threshold):
+    fig = plt.figure(figsize=(12, 12))
+    gs = fig.add_gridspec(2, 2,  width_ratios=(1, 5), height_ratios=(5, 1),
+                          left=0.1, right=0.9, bottom=0.1, top=0.9,
+                          wspace=0.05, hspace=0.05)
+
+    ax_scatter = fig.add_subplot(gs[0, 1])
+    ax_hist_x = fig.add_subplot(gs[1, 1], sharex=ax_scatter)
+    ax_hist_y = fig.add_subplot(gs[0, 0], sharey=ax_scatter)
 
     # Background windows (non-outliers)
     bg = win_df[~win_df['IsOutlier']]
-    ax.scatter(bg['Low_Density'], bg['High_Density'], alpha=0.3, s=10, color='blue', label='Background')
+    ax_scatter.scatter(bg['Low_Density'], bg['High_Density'], alpha=0.3, s=10, color='blue', label='Background')
 
     # Outliers
     outliers = win_df[win_df['IsOutlier']]
@@ -74,33 +89,34 @@ def plot_scatter_outliers(win_df, output_prefix, end_threshold, log_scale=False)
             norm_dists = dists / end_threshold
             colors = [(.85, 0, 0), (1, 0.75, 0.8)] # Red to Pink
             cm = LinearSegmentedColormap.from_list('outlier_cm', colors, N=100)
-            sc = ax.scatter(near_outliers['Low_Density'], near_outliers['High_Density'], c=norm_dists, cmap=cm, s=15, alpha=0.9, label='Near-Feature Outlier', vmin=0, vmax=1)
-            cbar = plt.colorbar(sc, ax=ax)
+            sc = ax_scatter.scatter(near_outliers['Low_Density'], near_outliers['High_Density'], c=norm_dists, cmap=cm, s=15, alpha=0.9, label='Near-Feature Outlier', vmin=0, vmax=1)
+            cbar_ax = fig.add_axes([0.92, 0.2, 0.02, 0.6])
+            cbar = fig.colorbar(sc, cax=cbar_ax)
             cbar.set_label(f'Distance from Feature (0 to {end_threshold})')
 
         # Far outliers (Green)
         far_outliers = outliers[outliers['MinDist'] > end_threshold]
         if not far_outliers.empty:
-            ax.scatter(far_outliers['Low_Density'], far_outliers['High_Density'], color='green', s=15, alpha=0.9, label='Far Outlier')
+            ax_scatter.scatter(far_outliers['Low_Density'], far_outliers['High_Density'], color='green', s=15, alpha=0.9, label='Far Outlier')
 
     # Add diagonal line
-    ax.plot([0, 1], [0, 1], 'k--', alpha=0.5)
+    ax_scatter.plot([0, 1], [0, 1], 'k--', alpha=0.5)
 
-    ax.set_xlabel('Low Extreme Kmer Density')
-    ax.set_ylabel('High Extreme Kmer Density')
-    ax.set_title('Scatter Plot: Extreme Kmer Density (Outliers Highlighted)')
-    ax.legend()
-    ax.set_xlim(-0.01, 1.01)
-    ax.set_ylim(-0.01, 1.01)
+    ax_scatter.set_xlim(-0.01, 1.01)
+    ax_scatter.set_ylim(-0.01, 1.01)
+    ax_scatter.tick_params(labelleft=False, labelbottom=False)
 
-    suffix = "_outliers_scatter_log10.png" if log_scale else "_outliers_scatter.png"
-    if log_scale:
-        plt.xscale("log")
-        plt.yscale("log")
-        ax.set_xlim(left=min(win_df['Low_Density'].replace(0, np.nan).min(), win_df['High_Density'].replace(0, np.nan).min()) * 0.5 or 1e-6)
+    # Marginal Histograms
+    bins = np.linspace(0, 1, 50)
+    ax_hist_x.hist(win_df['Low_Density'], bins=bins, color='blue', alpha=0.7)
+    ax_hist_y.hist(win_df['High_Density'], bins=bins, orientation='horizontal', color='blue', alpha=0.7)
+    ax_hist_y.invert_xaxis()
 
-    plt.tight_layout()
-    plt.savefig(f"{output_prefix}{suffix}", dpi=300)
+    ax_hist_x.set_xlabel('Low Extreme Kmer Density')
+    ax_hist_y.set_ylabel('High Extreme Kmer Density')
+    ax_scatter.set_title('Scatter Plot: Extreme Kmer Density (Outliers Highlighted)', pad=20)
+
+    plt.savefig(f"{output_prefix}_outliers_scatter.png", dpi=300)
     plt.close()
 
 def plot_end_comparison(stats, output_prefix):
@@ -330,9 +346,7 @@ def main():
 
     # Plotting
     plot_scatter_ends(win_df, args.output, args.end_threshold)
-    plot_scatter_ends(win_df, args.output, args.end_threshold, log_scale=True)
     plot_scatter_outliers(win_df, args.output, args.end_threshold)
-    plot_scatter_outliers(win_df, args.output, args.end_threshold, log_scale=True)
 
     global_end_stats = {
         'High_Density_End': win_df[win_df['MinDist']==0]['High_Density'].mean(),

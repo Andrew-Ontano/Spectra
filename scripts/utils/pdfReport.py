@@ -144,26 +144,20 @@ def add_mass_compare_section(story, image_dir, prefix, styles):
     story.append(Paragraph(
         f"<b>Extreme K-mer Coincidence:</b> These scatter plots compare the density (basepairs covered / effective window basepairs) of 'high' and 'low' extreme k-mers across genomic windows. "
         f"'High' k-mers are those over-represented in the assembly relative to raw reads, while 'low' k-mers are under-represented. "
-        f"The top two plots highlight all windows within a threshold distance of genomic features (sequence ends or N-gaps) to visualize edge-adjacent composition. "
-        f"The bottom two plots highlight outlier windows (exceeding standard deviation thresholds), with those near features colored from red to pink and far outliers colored in green. "
-        f"The log10-scale plots (right) provide finer resolution for windows with lower extreme k-mer densities.",
+        f"Marginal histograms on the left and bottom of each plot show the global distribution of these densities. "
+        f"The first plot (top) highlights all windows within a threshold distance of genomic features (sequence ends or N-gaps) to visualize edge-adjacent composition. "
+        f"The second plot (bottom) highlights outlier windows (exceeding standard deviation thresholds), with those near features colored from red to pink and far outliers colored in green.",
         styles["Normal"]))
 
-    # Row 1: Ends highlighted
-    paths_ends = [
-        os.path.join(image_dir, f"{prefix}_ends_scatter.png"),
-        os.path.join(image_dir, f"{prefix}_ends_scatter_log10.png")
-    ]
-    add_image_row(story, paths_ends, [3.75 * inch] * 2, [4.5 * inch] * 2, styles)
+    # Plot 1: Ends highlighted
+    ends_path = os.path.join(image_dir, f"{prefix}_ends_scatter.png")
+    add_safe_image(story, ends_path, 6.5 * inch, 4.5 * inch, styles, spacer=0.2)
 
     story.append(Spacer(1, 0.2 * inch))
 
-    # Row 2: Outliers highlighted
-    paths_outliers = [
-        os.path.join(image_dir, f"{prefix}_outliers_scatter.png"),
-        os.path.join(image_dir, f"{prefix}_outliers_scatter_log10.png")
-    ]
-    add_image_row(story, paths_outliers, [3.75 * inch] * 2, [4.5 * inch] * 2, styles)
+    # Plot 2: Outliers highlighted
+    outliers_path = os.path.join(image_dir, f"{prefix}_outliers_scatter.png")
+    add_safe_image(story, outliers_path, 6.5 * inch, 4.5 * inch, styles, spacer=0.2)
 
 def add_distribution_section(story, image_dir, prefix, mer, styles, percentile_low, percentile_high):
     story.append(PageBreak())
