@@ -13,53 +13,113 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger()
 
 def calculate_jaccard(df, threshold):
-    high_present = df['high'] > threshold
-    low_present = df['low'] > threshold
+    high_present = df['High_Density'] > threshold
+    low_present = df['Low_Density'] > threshold
     intersection = np.logical_and(high_present, low_present).sum()
     union = np.logical_or(high_present, low_present).sum()
     return intersection / union if union > 0 else 0.0
 
-def plot_scatter(win_df, output_prefix, end_threshold, log_scale=False, value_column="Count"):
-    fig, ax = plt.subplots(figsize=(10, 10))
+def plot_scatter_ends(win_df, output_prefix, end_threshold):
+    fig = plt.figure(figsize=(12, 12))
+    gs = fig.add_gridspec(2, 2,  width_ratios=(1, 5), height_ratios=(5, 1),
+                          left=0.1, right=0.9, bottom=0.1, top=0.9,
+                          wspace=0.05, hspace=0.05)
+
+    ax_scatter = fig.add_subplot(gs[0, 1])
+    ax_hist_x = fig.add_subplot(gs[1, 1], sharex=ax_scatter)
+    ax_hist_y = fig.add_subplot(gs[0, 0], sharey=ax_scatter)
+
+    # Background windows (beyond threshold)
+    bg = win_df[win_df['MinDist'] > end_threshold]
+    ax_scatter.scatter(bg['Low_Density'], bg['High_Density'], alpha=0.3, s=10, color='blue', label='Background')
+
+    # End/N-adjacent regions (within threshold)
+    ends = win_df[win_df['MinDist'] <= end_threshold]
+    if not ends.empty:
+        dists = np.clip(ends['MinDist'], 0, end_threshold)
+        norm_dists = dists / end_threshold
+        colors = [(.85, 0, 0), (1, 0.75, 0.8)] # Red to Pink
+        cm = LinearSegmentedColormap.from_list('outlier_cm', colors, N=100)
+        sc = ax_scatter.scatter(ends['Low_Density'], ends['High_Density'], c=norm_dists, cmap=cm, s=10, alpha=0.8, label='End/N-Adjacent', vmin=0, vmax=1)
+        cbar_ax = fig.add_axes([0.92, 0.2, 0.02, 0.6])
+        cbar = fig.colorbar(sc, cax=cbar_ax)
+        cbar.set_label(f'Distance from Feature (0 to {end_threshold})')
+
+    # Add diagonal line
+    ax_scatter.plot([0, 1], [0, 1], 'k--', alpha=0.5)
+
+    ax_scatter.set_xlim(-0.01, 1.01)
+    ax_scatter.set_ylim(-0.01, 1.01)
+    ax_scatter.tick_params(labelleft=False, labelbottom=False)
+
+    # Marginal Histograms
+    bins = np.linspace(0, 1, 50)
+    ax_hist_x.hist(win_df['Low_Density'], bins=bins, color='blue', alpha=0.7)
+    ax_hist_y.hist(win_df['High_Density'], bins=bins, orientation='horizontal', color='blue', alpha=0.7)
+    ax_hist_y.invert_xaxis()
+
+    ax_hist_x.set_xlabel('Low Extreme Kmer Density')
+    ax_hist_y.set_ylabel('High Extreme Kmer Density')
+    ax_scatter.set_title('Scatter Plot: Extreme Kmer Density (Ends Highlighted)', pad=20)
+
+    plt.savefig(f"{output_prefix}_ends_scatter.png", dpi=300)
+    plt.close()
+
+def plot_scatter_outliers(win_df, output_prefix, end_threshold):
+    fig = plt.figure(figsize=(12, 12))
+    gs = fig.add_gridspec(2, 2,  width_ratios=(1, 5), height_ratios=(5, 1),
+                          left=0.1, right=0.9, bottom=0.1, top=0.9,
+                          wspace=0.05, hspace=0.05)
+
+    ax_scatter = fig.add_subplot(gs[0, 1])
+    ax_hist_x = fig.add_subplot(gs[1, 1], sharex=ax_scatter)
+    ax_hist_y = fig.add_subplot(gs[0, 0], sharey=ax_scatter)
 
     # Background windows (non-outliers)
     bg = win_df[~win_df['IsOutlier']]
-    ax.scatter(bg['low'], bg['high'], alpha=0.3, s=10, color='blue', label='Background')
+    ax_scatter.scatter(bg['Low_Density'], bg['High_Density'], alpha=0.3, s=10, color='blue', label='Background')
 
     # Outliers
     outliers = win_df[win_df['IsOutlier']]
-
     if not outliers.empty:
-        if end_threshold > 0:
-            dists = np.clip(outliers['MinDist'], 0, end_threshold)
+        # Near feature outliers (Red-to-Pink)
+        near_outliers = outliers[outliers['MinDist'] <= end_threshold]
+        if not near_outliers.empty:
+            dists = np.clip(near_outliers['MinDist'], 0, end_threshold)
             norm_dists = dists / end_threshold
             colors = [(.85, 0, 0), (1, 0.75, 0.8)] # Red to Pink
             cm = LinearSegmentedColormap.from_list('outlier_cm', colors, N=100)
-            sc = ax.scatter(outliers['low'], outliers['high'], c=norm_dists, cmap=cm, s=10, alpha=0.8, label='Outliers', vmin=0, vmax=1)
-            cbar = plt.colorbar(sc, ax=ax)
+            sc = ax_scatter.scatter(near_outliers['Low_Density'], near_outliers['High_Density'], c=norm_dists, cmap=cm, s=15, alpha=0.9, label='Near-Feature Outlier', vmin=0, vmax=1)
+            cbar_ax = fig.add_axes([0.92, 0.2, 0.02, 0.6])
+            cbar = fig.colorbar(sc, cax=cbar_ax)
             cbar.set_label(f'Distance from Feature (0 to {end_threshold})')
-        else:
-            ax.scatter(outliers['low'], outliers['high'], alpha=0.8, s=5, color='red', label='Outliers (Dist 0)')
+
+        # Far outliers (Green)
+        far_outliers = outliers[outliers['MinDist'] > end_threshold]
+        if not far_outliers.empty:
+            ax_scatter.scatter(far_outliers['Low_Density'], far_outliers['High_Density'], color='green', s=15, alpha=0.9, label='Far Outlier')
 
     # Add diagonal line
-    max_val = max(win_df['high'].max(), win_df['low'].max())
-    ax.plot([0, max_val], [0, max_val], 'k--', alpha=0.5)
+    ax_scatter.plot([0, 1], [0, 1], 'k--', alpha=0.5)
 
-    ax.set_xlabel(f'Low Extreme Kmer {value_column}')
-    ax.set_ylabel(f'High Extreme Kmer {value_column}')
-    ax.set_title(f'Scatter Plot: Extreme Kmer {value_column} (Outliers Highlighted)')
-    ax.legend()
-    if log_scale:
-        plt.xscale("log")
-        plt.yscale("log")
-        plt.tight_layout()
-        plt.savefig(f"{output_prefix}_scatter_log10.png", dpi=300)
-    else:
-        plt.tight_layout()
-        plt.savefig(f"{output_prefix}_scatter.png", dpi=300)
+    ax_scatter.set_xlim(-0.01, 1.01)
+    ax_scatter.set_ylim(-0.01, 1.01)
+    ax_scatter.tick_params(labelleft=False, labelbottom=False)
+
+    # Marginal Histograms
+    bins = np.linspace(0, 1, 50)
+    ax_hist_x.hist(win_df['Low_Density'], bins=bins, color='blue', alpha=0.7)
+    ax_hist_y.hist(win_df['High_Density'], bins=bins, orientation='horizontal', color='blue', alpha=0.7)
+    ax_hist_y.invert_xaxis()
+
+    ax_hist_x.set_xlabel('Low Extreme Kmer Density')
+    ax_hist_y.set_ylabel('High Extreme Kmer Density')
+    ax_scatter.set_title('Scatter Plot: Extreme Kmer Density (Outliers Highlighted)', pad=20)
+
+    plt.savefig(f"{output_prefix}_outliers_scatter.png", dpi=300)
     plt.close()
 
-def plot_end_comparison(stats, output_prefix, value_column="Count"):
+def plot_end_comparison(stats, output_prefix):
     labels = ['High (Background)', 'High (End)', 'Low (Background)', 'Low (End)']
     values = [
         stats['High_Density_Background'], stats['High_Density_End'],
@@ -68,9 +128,8 @@ def plot_end_comparison(stats, output_prefix, value_column="Count"):
     colors = ['#ffcccc', 'red', '#ccccff', 'blue']
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.bar(labels, values, color=colors)
-    ylabel = 'Mean Density (counts per kbp)' if value_column == "Count" else 'Mean Coverage (bp per kbp)'
-    ax.set_ylabel(ylabel)
-    ax.set_title(f'Comparison of Extreme Kmer {value_column} Densities: Sequence Ends vs Background')
+    ax.set_ylabel('Mean Density (bp / effective window bp)')
+    ax.set_title('Comparison of Extreme Kmer Densities: Sequence Ends vs Background')
     plt.tight_layout()
     plt.savefig(f"{output_prefix}_end_comparison.png", dpi=300)
     plt.close()
@@ -135,10 +194,12 @@ def main():
     parser = argparse.ArgumentParser(description="Kmer Mass Compare: Compare extreme kmer accumulations across genome windows")
     parser.add_argument('-i', '--input', required=True, help='Input TSV from mass-query.py')
     parser.add_argument('-o', '--output', default='mass_compare', help='Output prefix for plots and stats')
-    parser.add_argument('--jaccard-minimum', type=int, default=0, help='Minimum count threshold for Jaccard coincidence [default 0]')
+    parser.add_argument('--jaccard-minimum', type=float, default=0, help='Minimum density threshold for Jaccard coincidence [default 0]')
     parser.add_argument('--ngaps', help='GFF file of N-gap coordinates')
     parser.add_argument('--end-threshold', type=int, default=0, help='Distance threshold for filtering outliers and coloring scatter [default 0]')
-    parser.add_argument('--value-column', dest='value_column', default='Count', choices=['Count', 'Basepairs'], help='Column to use for values [default Count]')
+    parser.add_argument('--value-column', dest='value_column', default='Basepairs', choices=['Count', 'Basepairs'], help='Column to use for values [default Basepairs]')
+    parser.add_argument('--outlier-method', choices=['SD', 'IQR'], default='SD', help='Method for joint outlier detection [default SD]')
+    parser.add_argument('--outlier-stat', type=float, default=1.0, help='Multiplier for outlier detection [default 1.0]')
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose mode')
 
     args = parser.parse_args()
@@ -166,9 +227,15 @@ def main():
         w_start = row['Start']
         w_end = row['End']
         seq_gaps = gaps.get(seq, [])
-        gap_len = get_gap_overlap(w_start, w_end, seq_gaps)
-        w_len = w_end - w_start + 1
-        effective_len = w_len - gap_len
+        # We now have EffectiveLen in the TSV from mass-query.py, but for backwards compatibility
+        # or if it was modified, we can still use it.
+        if 'EffectiveLen' in row:
+            effective_len = row['EffectiveLen']
+        else:
+            gap_len = get_gap_overlap(w_start, w_end, seq_gaps)
+            w_len = w_end - w_start + 1
+            effective_len = w_len - gap_len
+
         if effective_len <= 0: continue
 
         min_dist, f_type, f_id = calculate_nearest_feature(w_start, w_end, seq_lengths[seq], seq_gaps)
@@ -178,8 +245,8 @@ def main():
             'high': row['high'], 'low': row['low'],
             'MinDist': min_dist, 'FeatureType': f_type, 'FeatureID': f"{seq}:{f_id}",
             'EffectiveLen': effective_len,
-            'High_per_kbp': (row['high'] / effective_len) * 1000,
-            'Low_per_kbp': (row['low'] / effective_len) * 1000
+            'High_Density': row['high'] / effective_len,
+            'Low_Density': row['low'] / effective_len
         })
 
     win_df = pd.DataFrame(processed_windows)
@@ -188,37 +255,66 @@ def main():
         return
 
     # Background Statistics
-    bg_high_mean = win_df['High_per_kbp'].mean()
-    bg_high_sd = win_df['High_per_kbp'].std()
-    bg_low_mean = win_df['Low_per_kbp'].mean()
-    bg_low_sd = win_df['Low_per_kbp'].std()
+    if args.outlier_method == 'SD':
+        bg_high_stat = win_df['High_Density'].std()
+        bg_low_stat = win_df['Low_Density'].std()
+        bg_high_center = win_df['High_Density'].mean()
+        bg_low_center = win_df['Low_Density'].mean()
+    else: # IQR
+        bg_high_stat = win_df['High_Density'].quantile(0.75) - win_df['High_Density'].quantile(0.25)
+        bg_low_stat = win_df['Low_Density'].quantile(0.75) - win_df['Low_Density'].quantile(0.25)
+        bg_high_center = win_df['High_Density'].quantile(0.75)
+        bg_low_center = win_df['Low_Density'].quantile(0.75)
 
     # Per-sequence background stats
     seq_backgrounds = {}
     for seq, group in win_df.groupby('Sequence'):
+        if args.outlier_method == 'SD':
+            s_high_stat = group['High_Density'].std()
+            s_low_stat = group['Low_Density'].std()
+            s_high_center = group['High_Density'].mean()
+            s_low_center = group['Low_Density'].mean()
+        else:
+            s_high_stat = group['High_Density'].quantile(0.75) - group['High_Density'].quantile(0.25)
+            s_low_stat = group['Low_Density'].quantile(0.75) - group['Low_Density'].quantile(0.25)
+            s_high_center = group['High_Density'].quantile(0.75)
+            s_low_center = group['Low_Density'].quantile(0.75)
+
         seq_backgrounds[seq] = {
-            'high_mean': group['High_per_kbp'].mean(),
-            'high_sd': group['High_per_kbp'].std(),
-            'low_mean': group['Low_per_kbp'].mean(),
-            'low_sd': group['Low_per_kbp'].std()
+            'high_stat': s_high_stat if s_high_stat > 0 else 1e-9,
+            'low_stat': s_low_stat if s_low_stat > 0 else 1e-9,
+            'high_center': s_high_center,
+            'low_center': s_low_center
         }
 
     # Outlier flagging
     outlier_rows = []
     win_df['IsOutlier'] = False
 
+    bg_high_stat = bg_high_stat if bg_high_stat > 0 else 1e-9
+    bg_low_stat = bg_low_stat if bg_low_stat > 0 else 1e-9
+
     for idx, row in win_df.iterrows():
         seq = row['Sequence']
         s_bg = seq_backgrounds[seq]
 
-        is_global_high = row['High_per_kbp'] > (bg_high_mean + bg_high_sd)
-        is_seq_high = row['High_per_kbp'] > (s_bg['high_mean'] + s_bg['high_sd'])
-        is_global_low = row['Low_per_kbp'] > (bg_low_mean + bg_low_sd)
-        is_seq_low = row['Low_per_kbp'] > (s_bg['low_mean'] + s_bg['low_sd'])
-        min_dist = row['MinDist'] <= args.end_threshold
-        if (is_global_high or is_seq_high or is_global_low or is_seq_low) and min_dist:
+        # Individual checks (for tagging)
+        is_global_high = row['High_Density'] > (bg_high_center + args.outlier_stat * bg_high_stat)
+        is_seq_high = row['High_Density'] > (s_bg['high_center'] + args.outlier_stat * s_bg['high_stat'])
+        is_global_low = row['Low_Density'] > (bg_low_center + args.outlier_stat * bg_low_stat)
+        is_seq_low = row['Low_Density'] > (s_bg['low_center'] + args.outlier_stat * s_bg['low_stat'])
+
+        # Joint checks
+        dist_global = np.sqrt(((max(0, row['High_Density'] - bg_high_center) / bg_high_stat)**2) +
+                              ((max(0, row['Low_Density'] - bg_low_center) / bg_low_stat)**2))
+        dist_seq = np.sqrt(((max(0, row['High_Density'] - s_bg['high_center']) / s_bg['high_stat'])**2) +
+                           ((max(0, row['Low_Density'] - s_bg['low_center']) / s_bg['low_stat'])**2))
+
+        if dist_global > args.outlier_stat or dist_seq > args.outlier_stat:
             win_df.at[idx, 'IsOutlier'] = True
             out_types = []
+            if dist_global > args.outlier_stat: out_types.append("Global-Joint")
+            if dist_seq > args.outlier_stat: out_types.append("Sequence-Joint")
             if is_global_high: out_types.append("Global-High")
             if is_seq_high: out_types.append("Sequence-High")
             if is_global_low: out_types.append("Global-Low")
@@ -226,9 +322,10 @@ def main():
 
             outlier_rows.append({
                 'Sequence': seq, 'Length': seq_lengths[seq], 'Window': f"{row['Start']}-{row['End']}",
-                'High_Density': row['High_per_kbp'], 'Low_Density': row['Low_per_kbp'],
+                'High_Density': row['High_Density'], 'Low_Density': row['Low_Density'],
                 'MinDist': row['MinDist'], 'FeatureType': row['FeatureType'],
-                'FeatureID': row['FeatureID'], 'OutlierType': ",".join(out_types)
+                'FeatureID': row['FeatureID'], 'OutlierType': ",".join(out_types),
+                'JointDist_Global': dist_global, 'JointDist_Seq': dist_seq
             })
 
     df_outliers = pd.DataFrame(outlier_rows)
@@ -243,10 +340,10 @@ def main():
         s_end = group[group['MinDist'] == 0]
         s_bg = group[group['MinDist'] > 0]
 
-        s_high_end = s_end['High_per_kbp'].mean() if not s_end.empty else 0
-        s_high_bg = s_bg['High_per_kbp'].mean() if not s_bg.empty else group['High_per_kbp'].mean()
-        s_low_end = s_end['Low_per_kbp'].mean() if not s_end.empty else 0
-        s_low_bg = s_bg['Low_per_kbp'].mean() if not s_bg.empty else group['Low_per_kbp'].mean()
+        s_high_end = s_end['High_Density'].mean() if not s_end.empty else 0
+        s_high_bg = s_bg['High_Density'].mean() if not s_bg.empty else group['High_Density'].mean()
+        s_low_end = s_end['Low_Density'].mean() if not s_end.empty else 0
+        s_low_bg = s_bg['Low_Density'].mean() if not s_bg.empty else group['Low_Density'].mean()
 
         seq_stats_list.append({
             'Sequence': seq, 'Length': seq_lengths[seq], 'Total_High': s_high, 'Total_Low': s_low,
@@ -264,12 +361,12 @@ def main():
     with open(stats_file, 'w') as f:
         f.write("# Global Statistics\n")
         f.write(f"Global_Asymmetry_Index\t{(total_high - total_low) / (total_high + total_low) if (total_high + total_low) > 0 else 0:.4f}\n")
-        f.write(f"Pearson_Correlation\t{pearsonr(win_df['low'], win_df['high'])[0] if len(win_df)>1 else 0:.4f}\n")
+        f.write(f"Pearson_Correlation\t{pearsonr(win_df['Low_Density'], win_df['High_Density'])[0] if len(win_df)>1 else 0:.4f}\n")
         f.write(f"Jaccard_Coincidence_Index(>{args.jaccard_minimum})\t{calculate_jaccard(win_df, args.jaccard_minimum):.4f}\n")
-        f.write(f"Global_Background_High_Mean\t{bg_high_mean:.4f}\n")
-        f.write(f"Global_Background_High_SD\t{bg_high_sd:.4f}\n")
-        f.write(f"Global_Background_Low_Mean\t{bg_low_mean:.4f}\n")
-        f.write(f"Global_Background_Low_SD\t{bg_low_sd:.4f}\n")
+        f.write(f"Global_Background_High_Center\t{bg_high_center:.4f}\n")
+        f.write(f"Global_Background_High_Stat\t{bg_high_stat:.4f}\n")
+        f.write(f"Global_Background_Low_Center\t{bg_low_center:.4f}\n")
+        f.write(f"Global_Background_Low_Stat\t{bg_low_stat:.4f}\n")
         f.write("\n# Per-Sequence Statistics\n")
     df_seq_stats.to_csv(stats_file, sep='\t', index=False, mode='a')
 
@@ -280,16 +377,16 @@ def main():
     logger.info(f"Outliers written to {outliers_file}")
 
     # Plotting
-    plot_scatter(win_df, args.output, args.end_threshold, value_column=args.value_column)
-    plot_scatter(win_df, args.output, args.end_threshold, log_scale=True, value_column=args.value_column)
+    plot_scatter_ends(win_df, args.output, args.end_threshold)
+    plot_scatter_outliers(win_df, args.output, args.end_threshold)
 
     global_end_stats = {
-        'High_Density_End': win_df[win_df['MinDist']==0]['High_per_kbp'].mean(),
-        'Low_Density_End': win_df[win_df['MinDist']==0]['Low_per_kbp'].mean(),
-        'High_Density_Background': win_df[win_df['MinDist']>0]['High_per_kbp'].mean(),
-        'Low_Density_Background': win_df[win_df['MinDist']>0]['Low_per_kbp'].mean()
+        'High_Density_End': win_df[win_df['MinDist']==0]['High_Density'].mean(),
+        'Low_Density_End': win_df[win_df['MinDist']==0]['Low_Density'].mean(),
+        'High_Density_Background': win_df[win_df['MinDist']>0]['High_Density'].mean(),
+        'Low_Density_Background': win_df[win_df['MinDist']>0]['Low_Density'].mean()
     }
-    plot_end_comparison(global_end_stats, args.output, value_column=args.value_column)
+    plot_end_comparison(global_end_stats, args.output)
 
     logger.info(f"Plots generated with prefix {args.output}")
 

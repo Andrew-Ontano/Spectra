@@ -68,6 +68,9 @@ def process_window(task):
     # bin_id -> absolute start positions for sequence-wide calculation
     seq_match_starts = {bin_id: [] for bin_id in range(len(GLOBAL_BIN_NAMES))}
 
+    # Calculate effective length (non-N basepairs) for this window
+    effective_len = sum(1 for char in window_seq if char.upper() != 'N')
+
     for bin_id, bin_name in enumerate(GLOBAL_BIN_NAMES):
         count = local_counts.get(bin_id, 0)
 
@@ -79,7 +82,7 @@ def process_window(task):
             seq_match_starts[bin_id].append(start + s)
 
         bp_covered = sum(covered)
-        rows.append([sequence_name, bin_name, start + 1, end, count, bp_covered])
+        rows.append([sequence_name, bin_name, start + 1, end, count, bp_covered, effective_len])
 
     return rows, seq_match_starts
 
@@ -221,7 +224,7 @@ def main():
 
         with open(args.output, "w", newline="") as file_output:
             tsv_writer = csv.writer(file_output, delimiter="\t")
-            tsv_writer.writerow(["Sequence", "Bin", "Start", "End", "Count", "Basepairs"])
+            tsv_writer.writerow(["Sequence", "Bin", "Start", "End", "Count", "Basepairs", "EffectiveLen"])
 
             # Scan genome once
             for record in SeqIO.parse(args.input, args.format):

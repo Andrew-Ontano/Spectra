@@ -20,7 +20,8 @@ parser.add_argument("-s", "--plot_sample", type=int, default=1000000, help="Numb
 parser.add_argument("--percentile-low", dest='percentile_low', type=float, default=1, help="Bottom N percent of kmers for extreme scatter plot [default 1]")
 parser.add_argument("--percentile-high", dest='percentile_high', type=float, default=1, help="Top N percent of kmers for extreme scatter plot [default 1]")
 parser.add_argument("--auto", dest='auto', action='store_true', help='Automatically determine low/high percentiles based on distribution')
-parser.add_argument("--auto-std", dest="std", type=int, default=1, help='Take the Nth standard deviation for automatic determination [default 1]')
+parser.add_argument("--auto-method", dest="auto_method", choices=["SD", "IQR"], default="SD", help="Method for automatic percentile determination [default SD]")
+parser.add_argument("--auto-stat", "--auto-std", dest="auto_stat", type=float, default=1.0, help='Multiplier for SD or factor for IQR for automatic determination [default 1.0]')
 parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', help='Verbose mode', default=False)
 
 args = parser.parse_args()
@@ -88,10 +89,18 @@ df["reduction"] = df["logAsm"] - df["logRaw"]
 df["reductionRank"] = df["reduction"].rank(method="first")
 
 if args.auto:
-    mu = df["reduction"].mean()
-    sigma = df["reduction"].std()
-    low_thresh = mu - args.std * sigma
-    high_thresh = mu + args.std * sigma
+    if args.auto_method == "SD":
+        mu = df["reduction"].mean()
+        sigma = df["reduction"].std()
+        low_thresh = mu - args.auto_stat * sigma
+        high_thresh = mu + args.auto_stat * sigma
+    else: # IQR
+        q1 = df["reduction"].quantile(0.25)
+        q3 = df["reduction"].quantile(0.75)
+        iqr = q3 - q1
+        low_thresh = q1 - args.auto_stat * iqr
+        high_thresh = q3 + args.auto_stat * iqr
+
     df_sorted = df.sort_values("reduction")
     low_cut_idx = df_sorted["reduction"].searchsorted(low_thresh, side='right')
     high_cut_idx = df_sorted["reduction"].searchsorted(high_thresh, side='left')
