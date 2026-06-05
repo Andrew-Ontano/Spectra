@@ -272,7 +272,7 @@ def main():
                 f.write(f"{variables['python']} {shlex.quote(spectra_path + '/scripts/utils/n-counter.py')} -i {variables['assembled']} -o {variables['prefix']}_ngaps.gff -v\n")
 
             # mass-compare
-            mass_compare_cmd = f"{variables['python']} {shlex.quote(spectra_path + '/scripts/utils/mass-compare.py')} -i {variables['prefix']}_mass_query.tsv -o {variables['prefix']}/{variables['prefix']} --end-threshold {args.mq_window * 5}"
+            mass_compare_cmd = f"{variables['python']} {shlex.quote(spectra_path + '/scripts/utils/mass-compare.py')} -i {variables['prefix']}_mass_query.tsv -o {variables['prefix']}/{variables['prefix']} --end-threshold {args.mq_window * 5} --outlier-method {args.auto_method} --outlier-stat {args.auto_stat}"
             if args.ngaps:
                 mass_compare_cmd += f" --ngaps {variables['prefix']}_ngaps.gff"
             f.write(mass_compare_cmd + "\n")

@@ -198,6 +198,8 @@ def main():
     parser.add_argument('--ngaps', help='GFF file of N-gap coordinates')
     parser.add_argument('--end-threshold', type=int, default=0, help='Distance threshold for filtering outliers and coloring scatter [default 0]')
     parser.add_argument('--value-column', dest='value_column', default='Basepairs', choices=['Count', 'Basepairs'], help='Column to use for values [default Basepairs]')
+    parser.add_argument('--outlier-method', choices=['SD', 'IQR'], default='SD', help='Method for joint outlier detection [default SD]')
+    parser.add_argument('--outlier-stat', type=float, default=1.0, help='Multiplier for outlier detection [default 1.0]')
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose mode')
 
     args = parser.parse_args()
@@ -253,37 +255,66 @@ def main():
         return
 
     # Background Statistics
-    bg_high_mean = win_df['High_Density'].mean()
-    bg_high_sd = win_df['High_Density'].std()
-    bg_low_mean = win_df['Low_Density'].mean()
-    bg_low_sd = win_df['Low_Density'].std()
+    if args.outlier_method == 'SD':
+        bg_high_stat = win_df['High_Density'].std()
+        bg_low_stat = win_df['Low_Density'].std()
+        bg_high_center = win_df['High_Density'].mean()
+        bg_low_center = win_df['Low_Density'].mean()
+    else: # IQR
+        bg_high_stat = win_df['High_Density'].quantile(0.75) - win_df['High_Density'].quantile(0.25)
+        bg_low_stat = win_df['Low_Density'].quantile(0.75) - win_df['Low_Density'].quantile(0.25)
+        bg_high_center = win_df['High_Density'].quantile(0.75)
+        bg_low_center = win_df['Low_Density'].quantile(0.75)
 
     # Per-sequence background stats
     seq_backgrounds = {}
     for seq, group in win_df.groupby('Sequence'):
+        if args.outlier_method == 'SD':
+            s_high_stat = group['High_Density'].std()
+            s_low_stat = group['Low_Density'].std()
+            s_high_center = group['High_Density'].mean()
+            s_low_center = group['Low_Density'].mean()
+        else:
+            s_high_stat = group['High_Density'].quantile(0.75) - group['High_Density'].quantile(0.25)
+            s_low_stat = group['Low_Density'].quantile(0.75) - group['Low_Density'].quantile(0.25)
+            s_high_center = group['High_Density'].quantile(0.75)
+            s_low_center = group['Low_Density'].quantile(0.75)
+
         seq_backgrounds[seq] = {
-            'high_mean': group['High_Density'].mean(),
-            'high_sd': group['High_Density'].std(),
-            'low_mean': group['Low_Density'].mean(),
-            'low_sd': group['Low_Density'].std()
+            'high_stat': s_high_stat if s_high_stat > 0 else 1e-9,
+            'low_stat': s_low_stat if s_low_stat > 0 else 1e-9,
+            'high_center': s_high_center,
+            'low_center': s_low_center
         }
 
     # Outlier flagging
     outlier_rows = []
     win_df['IsOutlier'] = False
 
+    bg_high_stat = bg_high_stat if bg_high_stat > 0 else 1e-9
+    bg_low_stat = bg_low_stat if bg_low_stat > 0 else 1e-9
+
     for idx, row in win_df.iterrows():
         seq = row['Sequence']
         s_bg = seq_backgrounds[seq]
 
-        is_global_high = row['High_Density'] > (bg_high_mean + bg_high_sd)
-        is_seq_high = row['High_Density'] > (s_bg['high_mean'] + s_bg['high_sd'])
-        is_global_low = row['Low_Density'] > (bg_low_mean + bg_low_sd)
-        is_seq_low = row['Low_Density'] > (s_bg['low_mean'] + s_bg['low_sd'])
+        # Individual checks (for tagging)
+        is_global_high = row['High_Density'] > (bg_high_center + args.outlier_stat * bg_high_stat)
+        is_seq_high = row['High_Density'] > (s_bg['high_center'] + args.outlier_stat * s_bg['high_stat'])
+        is_global_low = row['Low_Density'] > (bg_low_center + args.outlier_stat * bg_low_stat)
+        is_seq_low = row['Low_Density'] > (s_bg['low_center'] + args.outlier_stat * s_bg['low_stat'])
 
-        if (is_global_high or is_seq_high or is_global_low or is_seq_low):
+        # Joint checks
+        dist_global = np.sqrt(((max(0, row['High_Density'] - bg_high_center) / bg_high_stat)**2) +
+                              ((max(0, row['Low_Density'] - bg_low_center) / bg_low_stat)**2))
+        dist_seq = np.sqrt(((max(0, row['High_Density'] - s_bg['high_center']) / s_bg['high_stat'])**2) +
+                           ((max(0, row['Low_Density'] - s_bg['low_center']) / s_bg['low_stat'])**2))
+
+        if dist_global > args.outlier_stat or dist_seq > args.outlier_stat:
             win_df.at[idx, 'IsOutlier'] = True
             out_types = []
+            if dist_global > args.outlier_stat: out_types.append("Global-Joint")
+            if dist_seq > args.outlier_stat: out_types.append("Sequence-Joint")
             if is_global_high: out_types.append("Global-High")
             if is_seq_high: out_types.append("Sequence-High")
             if is_global_low: out_types.append("Global-Low")
@@ -293,7 +324,8 @@ def main():
                 'Sequence': seq, 'Length': seq_lengths[seq], 'Window': f"{row['Start']}-{row['End']}",
                 'High_Density': row['High_Density'], 'Low_Density': row['Low_Density'],
                 'MinDist': row['MinDist'], 'FeatureType': row['FeatureType'],
-                'FeatureID': row['FeatureID'], 'OutlierType': ",".join(out_types)
+                'FeatureID': row['FeatureID'], 'OutlierType': ",".join(out_types),
+                'JointDist_Global': dist_global, 'JointDist_Seq': dist_seq
             })
 
     df_outliers = pd.DataFrame(outlier_rows)
@@ -331,10 +363,10 @@ def main():
         f.write(f"Global_Asymmetry_Index\t{(total_high - total_low) / (total_high + total_low) if (total_high + total_low) > 0 else 0:.4f}\n")
         f.write(f"Pearson_Correlation\t{pearsonr(win_df['Low_Density'], win_df['High_Density'])[0] if len(win_df)>1 else 0:.4f}\n")
         f.write(f"Jaccard_Coincidence_Index(>{args.jaccard_minimum})\t{calculate_jaccard(win_df, args.jaccard_minimum):.4f}\n")
-        f.write(f"Global_Background_High_Mean\t{bg_high_mean:.4f}\n")
-        f.write(f"Global_Background_High_SD\t{bg_high_sd:.4f}\n")
-        f.write(f"Global_Background_Low_Mean\t{bg_low_mean:.4f}\n")
-        f.write(f"Global_Background_Low_SD\t{bg_low_sd:.4f}\n")
+        f.write(f"Global_Background_High_Center\t{bg_high_center:.4f}\n")
+        f.write(f"Global_Background_High_Stat\t{bg_high_stat:.4f}\n")
+        f.write(f"Global_Background_Low_Center\t{bg_low_center:.4f}\n")
+        f.write(f"Global_Background_Low_Stat\t{bg_low_stat:.4f}\n")
         f.write("\n# Per-Sequence Statistics\n")
     df_seq_stats.to_csv(stats_file, sep='\t', index=False, mode='a')
 
