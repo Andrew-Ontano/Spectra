@@ -8,6 +8,17 @@ suppressPackageStartupMessages(library(dplyr))
 suppressPackageStartupMessages(library(tidyr))
 suppressPackageStartupMessages(library(optparse))
 
+baseTheme = theme_bw() + theme(
+	axis.title.x = element_text(size=5),
+	axis.title.y = element_text(size=5),
+	legend.key.size = unit(5, "pt"),
+	legend.spacing = unit(-3, "pt"),
+	axis.text.x = element_text(angle=0, vjust=0.5, size=5),
+	axis.text.y = element_text(size=5),
+	line = element_blank(),
+	axis.ticks = element_line(),
+	legend.title = element_blank()
+)
 
 spectraPlot = function(values, legend=FALSE, facet=FALSE, frequencies=FALSE, ylims=TRUE, range, scale,axes){
 	if(frequencies){
@@ -192,11 +203,8 @@ if(!is.null(opt$window_size)){
 	values = values %>% filter(End <= as.numeric(coords[[1]][2]))
 }
 
-lib.names = names(table(values$Library))
-seq.names = names(table(values$Sequence))
-
-lib.names = names(table(values$Library))
-seq.names = names(table(values$Sequence))
+lib.names = unique(values$Library)
+seq.names = unique(values$Sequence)
 
 if(length(lib.names)>1 && !is.null(opt$gffFile)){
 	print("Warning: the gff track will be omitted because multiple libraries are being plotted.")
@@ -228,7 +236,7 @@ for(seq in seq.names){
 	
 	if(length(lib.names)>1){
 		faceted=TRUE
-		height.factor = length(names(table(temp.values$Library)))
+		height.factor = length(unique(temp.values$Library))
 
 	}else{
 		faceted=FALSE
@@ -240,7 +248,7 @@ for(seq in seq.names){
 		p = p + geom_segment(data=gff%>%filter(seqid==seq), aes(x=start, xend=end, y=-.03, yend=-.03,color=strand), size=4) + scale_y_continuous(limits=c(-.06, 1), expand=c(0, 0))
 	}
 	if(!is.null(trf)){
-		if(nrow(trf%>%filter(Sequence==seq))>0){
+		if(any(trf$Sequence==seq)){
 			p = p + geom_line(data=trf%>%filter(Sequence==seq), aes(x=(End+Start)/2, y=(Proportion-1.12)/4), color="black", size=0.25) + scale_y_continuous(limits=c(-.28, 1), expand=c(0, 0))
 		}
 		trackOffset = trackOffset - .03

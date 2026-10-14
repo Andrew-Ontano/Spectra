@@ -1,76 +1,100 @@
 #!/usr/bin/env python3
 
-# TODO: create scalability for n-mer
-
 import os
 import time
 from Bio import SeqIO
 import csv
 import logging
 import spectral
-import pandas as pd
-logging.basicConfig(level=logging.ERROR)
+import multiprocessing
+from collections import namedtuple
+
+logging.basicConfig(level=logging.ERROR, format='%(levelname)s: %(message)s')
 logger = logging.getLogger()
 
-def execute(args):
-    maxSize = 30000000 if 30000000 % args.spacing != 0 else (30000000 // args.spacing) * args.spacing
+WindowTask = namedtuple("WindowTask", ["seq", "queries", "start", "end", "headers"])
 
+def window_tasks_generator(input_sequence, sequence_format, queries_all, width, spacing, libraries, minimum_size, chunk_size):
+    for seq_record in SeqIO.parse(input_sequence, sequence_format):
+        sequence_name = seq_record.id
+        headers = sequence_name.split("_") if libraries else [os.path.basename(input_sequence), sequence_name]
+        sequence_length = len(seq_record)
+
+        if sequence_length < minimum_size:
+            continue
+
+        # Process in chunks to save memory
+        for chunk_start in range(0, sequence_length, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, sequence_length)
+            sub_seq = str(seq_record.seq[chunk_start:chunk_end]).upper()
+
+            for i in range(0, len(sub_seq), spacing):
+                window = sub_seq[i:i+width]
+                if not window or (len(window) < width and (chunk_start + i + len(window) < sequence_length)):
+                    # Skip incomplete windows unless it's the very end of the sequence
+                    continue
+
+                start = chunk_start + i
+                end = start + len(window)
+                yield WindowTask(window, queries_all, start, end, headers)
+
+def execute(args):
     if args.verbose:
         logger.setLevel(logging.INFO)
 
-    startTime = time.time()
+    start_time = time.time()
     if not os.path.exists(args.input_sequence):
-        logging.error(f"Couldn't find input file '{args.input_sequence}'")
-        exit()
+        logger.error(f"Couldn't find input file '{args.input_sequence}'")
+        return
 
-    sequences = {}
-    if args.memory:
-        try:
-            sequences = SeqIO.index(args.input_sequence, args.sequence_format)
-            if len(sequences.keys()) == 0:
-                logging.error(f"Sequence file '{args.input_sequence}' could not be loaded in format '{args.sequence_format}' or has incorrectly formatted sequences")
-                exit()
-        except ValueError:
-            logging.error(f"Sequence file '{args.input_sequence}' could not be loaded in format '{args.sequence_format}'")
-            exit()
-    else:
-        try:
-            sequences = SeqIO.to_dict(SeqIO.parse(args.input_sequence, args.sequence_format))
-            if len(sequences.keys()) == 0:
-                logging.error(f"Sequence file '{args.input_sequence}' could not be loaded in format '{args.sequence_format}' or has incorrectly formatted sequences")
-                exit()
-        except ValueError:
-            logging.error(f"Sequence file '{args.input_sequence}' could not be loaded in format '{args.sequence_format}'")
-            exit()
-    bases = ["A", "C", "G", "T"]
-    queries = [f"{a}{b}{c}" for c in bases for b in bases for a in bases]
-
-    with open(args.output, 'w', newline='') as fileOutput:
-        tsvWriter = csv.writer(fileOutput, delimiter='\t')
-        tsvWriter.writerow(["Library", "Sequence", "Start", "End"] + queries)
-        callableProcess = spectral.windowCount if args.overlap else spectral.windowCountNoOverlap
-
-        for sequence in sequences:
-            headers = sequence.split("_") if args.libraries else [os.path.basename(args.input_sequence), sequence]
-            sequenceLength = len(sequences[sequence])
-            if args.memory or sequenceLength >= maxSize:
-                logging.info(f"Sequence {sequence} is large. Breaking into smaller segments")
-                indices = range(0, sequenceLength, maxSize)
-                for sequenceIndex in indices:
-                    toProcess = [[sequences[sequence][i:i + args.width].seq.upper(), queries, i, i + args.width, headers] for i in range(sequenceIndex, sequenceIndex + maxSize, args.spacing) if len(sequences[sequence][i:i + args.width]) > 0]
-                    rows = map(callableProcess, toProcess)
-                    tsvWriter.writerows(rows)
-                logging.info(f"Sequence {sequence} windows written to output file")
-            else:
-                toProcess = [[sequences[sequence][i:i+args.width].seq.upper(), queries, i, i + args.width, headers] for i in range(0, sequenceLength+args.spacing, args.spacing) if len(sequences[sequence][i:i+args.width]) > 0]
-                rows = map(callableProcess, toProcess)
-                tsvWriter.writerows(rows)
-                logging.info(f"Sequence {sequence} windows written to output file")
-
+    # Pre-calculate queries
+    queries_all = spectral.set_mers(args.mer_size)
     if args.complement:
-        logging.info("Simplifying forward and r-c counts")
-        spectra = pd.read_csv(args.output, delimiter='\t')
-        spectra = spectral.simplify(spectra, dim=len(queries))
-        spectra.to_csv(args.output, sep='\t', index=False)
+        queries = spectral.map_canonical_mers(queries_all)
+    else:
+        queries = {queries_all[a]: [a] for a in range(len(queries_all))}
 
-    logging.info(f'Execution time in seconds: {time.time() - startTime}')
+    # Prepare for output
+    tsv_headers = ["Library", "Sequence", "Start", "End"] + list(queries.keys())
+
+    # Process windows in parallel
+    callable_process = spectral.window_count if args.overlap else spectral.window_count_no_overlap
+
+    try:
+        with open(args.output, 'w', newline='') as file_output:
+            tsv_writer = csv.writer(file_output, delimiter='\t')
+            tsv_writer.writerow(tsv_headers)
+
+            tasks = window_tasks_generator(
+                args.input_sequence,
+                args.sequence_format,
+                queries_all,
+                args.width,
+                args.spacing,
+                args.libraries,
+                args.minimum_size,
+                args.chunk_size
+            )
+
+            if args.threads > 1:
+                pool = multiprocessing.Pool(processes=args.threads)
+                # Use imap to maintain order and be memory efficient
+                for row in pool.imap(callable_process, tasks):
+                    if args.complement:
+                        tsv_writer.writerow(spectral.collapse_rc(row, queries, dim=len(queries_all)))
+                    else:
+                        tsv_writer.writerow(row)
+                pool.close()
+                pool.join()
+            else:
+                for task in tasks:
+                    row = callable_process(task)
+                    if args.complement:
+                        tsv_writer.writerow(spectral.collapse_rc(row, queries, dim=len(queries_all)))
+                    else:
+                        tsv_writer.writerow(row)
+    except Exception as e:
+        logger.error(f"Failed to write to {args.output}: {e}")
+        return
+
+    logger.info(f'Execution time in seconds: {time.time() - start_time}')

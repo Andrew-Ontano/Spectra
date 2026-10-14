@@ -1,61 +1,66 @@
 #!/usr/bin/env python3
 
-# provide info about a given spectra file
-
-import ruptures as rpt
-import logging
 import os
+import logging
 import pandas as pd
-import matplotlib.pyplot as plt
 import spectral
-logging.basicConfig(level=logging.ERROR)
+import matplotlib.pyplot as plt
+import numpy as np
+import ruptures as rpt
+
+logging.basicConfig(level=logging.ERROR, format='%(levelname)s: %(message)s')
 logger = logging.getLogger()
 
-# plots breakpoints calculated through ruptures
-def plotBreakpoints(sequence, data, dataAlgo):
-    fig, ax_arr = rpt.display(data, dataAlgo, figsize=(30, 150))
-    plt.savefig(f'breakpoints_breakdown_{sequence}.png')
-    plt.close()
-
-# function to iterate over the windows and convert them to frequencies
-# raw counts misrepresent kmer diversity in gappy alignments
-def padWindows(spectra, tally, mer):
-    for index, row in spectra.iterrows():
-        spectra.loc[index, mer] = [a/tally[index] for a in row[mer]]
-    return spectra
+def gff_writer(results, output):
+    try:
+        with open(f"{output}_bins.gff", 'w') as out_file:
+            for i, (_, line) in enumerate(results.iterrows()):
+                strand = '+' if i % 2 == 0 else '-'
+                out_file.write(f"{line['Sequence']}\tSpectra-bins\tbin-region\t{line['Start']}\t{line['End']}\t.\t{strand}\t.\tBin ID:{line['Bin']}, size: {line['Length']}\n")
+    except Exception as e:
+        logger.error(f"Error writing GFF file: {e}")
 
 def execute(args):
     if args.verbose:
         logger.setLevel(logging.INFO)
 
     if not os.path.exists(args.input_tsv):
-        logging.error(f"Could not find input file '{args.input_tsv}'")
-        exit()
+        logger.error(f"Could not find input file '{args.input_tsv}'")
+        return
 
-    spectra = pd.read_csv(args.input_tsv, delimiter='\t')
-    indexLength = 4
-    spectraDimensions = len(spectra.columns) - indexLength
+    try:
+        spectra = pd.read_csv(args.input_tsv, delimiter='\t')
+    except Exception as e:
+        logger.error(f"Error reading {args.input_tsv}: {e}")
+        return
+
+    index_length = 4
+    spectra_dimensions = len(spectra.columns) - index_length
 
     if args.frequency:
-        # penalty is temporarily locked to 1 or lower for frequency-based breakpoints
         if args.penalty > 1:
             args.penalty = 0.5
-        spectra = spectral.countToFrequency(spectra, index=indexLength, dim=spectraDimensions)
-    breakpoints = spectral.getBreakpoints(spectra, penalty=args.penalty, min_size=args.size, index=indexLength, dim=spectraDimensions)
-    spectra = spectral.applyBreakpoints(spectra, breakpoints)
+        spectra = spectral.count_to_frequency(spectra, index=index_length, dim=spectra_dimensions)
 
-    if args.output_tsv:
-        spectra.to_csv(args.output_tsv, sep='\t', index=False)
+    breakpoints = spectral.get_breakpoints(spectra, penalty=args.penalty, min_size=args.size, index=index_length, dim=spectra_dimensions)
+    spectra = spectral.apply_breakpoints(spectra, breakpoints)
 
-    spectraDimensions -= 1
-    results = spectral.getBreakpointFrequencies(spectra, args.frequency, index=indexLength, dim=spectraDimensions)
-    if args.output_tsv:
-        results.to_csv(f"bins_{args.output_tsv}", index=False, sep='\t')
+    if args.output_prefix:
+        try:
+            spectra.to_csv(f"{args.output_prefix}.tsv", sep='\t', index=False)
+        except Exception as e:
+            logger.error(f"Error writing output TSV: {e}")
+
+    # After applying breakpoints, 'Block' column might have been added, adjusting dimensions
+    # Actually spectral.get_breakpoint_frequencies handles it if we pass correct dim
+    results = spectral.get_breakpoint_frequencies(spectra, args.frequency, index=index_length, dim=spectra_dimensions)
+
+    if args.output_prefix:
+        try:
+            results.to_csv(f"{args.output_prefix}_bins.tsv", index=False, sep='\t')
+            gff_writer(results, args.output_prefix)
+        except Exception as e:
+            logger.error(f"Error writing results: {e}")
     else:
-        for line in results.iterrows():
-            print(f"{line[1][0]}, {line[1][1]}, {line[1][4]}, {line[1][5]}")
-
-
-
-
-
+        for _, line in results.iterrows():
+            print(f"{line['Library']}, {line['Sequence']}, {line['Start']}, {line['End']}")
